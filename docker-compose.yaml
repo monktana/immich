@@ -4,14 +4,16 @@
 # Basiert auf dem offiziellen Compose-File von Immich:
 # https://github.com/immich-app/immich/blob/main/docker/docker-compose.yml
 #
-# Änderungen ggü. dem Original:
-#  - kein `ports:` Mapping mehr auf dem immich-server, stattdessen `expose`,
-#    damit Coolify/Traefik den Reverse Proxy + Let's Encrypt übernimmt
-#    (genau wie bei paperless). Domain wird in Coolify konfiguriert.
-#  - Kommentare an ein paar Stellen ergänzt/eingedeutscht
+# Angepasst analog zum Paperless-Setup (monktana/paperless):
+#  - Keine .env Datei, alle Variablen werden direkt in Coolify unter
+#    "Environment Variables" hinterlegt (siehe README für die Liste).
+#  - Bind-Mounts auf ein separates Hetzner Volume statt Docker-verwalteter
+#    Named Volumes, damit die Fotobibliothek nicht auf der System-Disk liegt.
+#  - Kein Port-Mapping, Coolify übernimmt Reverse Proxy + TLS über die
+#    Domain-Konfiguration der Resource.
 #
-# WICHTIG: Immer die aktuelle Version von hier prüfen, bevor größere Upgrades
-# gemacht werden: https://github.com/immich-app/immich/releases
+# WICHTIG: Vor größeren Upgrades die Release Notes prüfen:
+# https://github.com/immich-app/immich/releases
 #
 
 name: immich
@@ -21,18 +23,15 @@ services:
     container_name: immich_server
     image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
     volumes:
-      # Nicht die nächste Zeile ändern. Speicherort wird über UPLOAD_LOCATION
-      # in der .env gesteuert (siehe .env.example -> am besten ein separates
-      # Hetzner Volume hier einhängen, nicht die System-Disk!)
-      - ${UPLOAD_LOCATION}:/data
+      - /mnt/app-data/immich/library:/data
       - /etc/localtime:/etc/localtime:ro
-    env_file:
-      - .env
-    # Coolify übernimmt den Reverse Proxy + TLS, daher kein Port-Mapping nach
-    # außen. Falls du OHNE Coolify direkt per Port testen willst, ersetze
-    # `expose` durch:
-    #   ports:
-    #     - '2283:2283'
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME}
+      REDIS_HOSTNAME: redis
+      TZ: ${TZ}
     expose:
       - '2283'
     depends_on:
@@ -49,8 +48,6 @@ services:
     image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
     volumes:
       - model-cache:/cache
-    env_file:
-      - .env
     restart: always
     healthcheck:
       disable: false
@@ -66,20 +63,20 @@ services:
     container_name: immich_postgres
     image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_DB: ${DB_DATABASE_NAME}
       POSTGRES_INITDB_ARGS: '--data-checksums'
       # Falls die DB NICHT auf SSD/NVMe liegt, die nächste Zeile aktivieren:
       # DB_STORAGE_TYPE: 'HDD'
     volumes:
-      # Speicherort wird über DB_DATA_LOCATION in der .env gesteuert.
-      # Muss auf EXT4/XFS/ZFS/BTRFS liegen, NICHT auf einem Netzwerk-Share.
-      - ${DB_DATA_LOCATION}:/var/lib/postgresql/data
+      - /mnt/app-data/immich/postgres:/var/lib/postgresql/data
     shm_size: 128mb
     restart: always
     healthcheck:
       disable: false
 
 volumes:
+  # ML-Modell-Cache, unkritisch (wird bei Bedarf einfach neu heruntergeladen),
+  # bleibt daher als Docker-verwaltetes Volume statt Bind-Mount.
   model-cache:
