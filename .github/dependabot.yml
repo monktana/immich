@@ -10,3 +10,9 @@ updates:
       - "docker"
     commit-message:
       prefix: "chore"
+    ignore:
+      # Postgres major-version bumps change the on-disk data format and
+      # require a manual pg_upgrade/dump+restore - never auto-apply these.
+      # Minor/patch bumps within the same major version are still fine.
+      - dependency-name: "ghcr.io/immich-app/postgres"
+        update-types: ["version-update:semver-major"]
